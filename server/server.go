@@ -1975,9 +1975,8 @@ func (s *Server) runSMTPServer() error {
 
 	if s.config.SMTPServerImplicitTLS {
 		return s.smtpServer.ListenAndServeTLS()
-	} else {
-		return s.smtpServer.ListenAndServe()
 	}
+	return s.smtpServer.ListenAndServe()
 }
 
 func (s *Server) runManager() {
