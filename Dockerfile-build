@@ -1,50 +1,57 @@
-FROM golang:1.24-bullseye as builder
-
-ARG VERSION=dev
-ARG COMMIT=unknown
-ARG NODE_MAJOR=18
-
-RUN apt-get update && apt-get install -y \
-       build-essential ca-certificates curl gnupg \
-    && mkdir -p /etc/apt/keyrings \
-    && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
-    && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_$NODE_MAJOR.x nodistro main" >> /etc/apt/sources.list.d/nodesource.list \
-    && apt-get update \
-    && apt-get install -y \
-      python3-pip \
-      python3-venv \
-      nodejs \
-    && rm -rf /var/lib/apt/lists/*
+FROM python:3-bookworm AS docs
 
 WORKDIR /app
-ADD Makefile .
-
-# docs
-ADD ./requirements.txt .
+COPY Makefile requirements.txt ./
 RUN make docs-deps
-ADD ./mkdocs.yml .
-ADD ./docs ./docs
+
+COPY ./mkdocs.yml ./
+COPY ./docs ./docs
 RUN make docs-build
 
-# web
-ADD ./web/package.json ./web/package-lock.json ./web/
+
+FROM node:18-bookworm AS web
+
+WORKDIR /app
+COPY Makefile .
+COPY ./web/package.json ./web/package-lock.json ./web/
 RUN make web-deps
-ADD ./web ./web
+
+COPY ./web ./web
 RUN make web-build
 
+
+FROM golang:1.25-bookworm AS builder
+ARG VERSION=dev
+ARG COMMIT=unknown
+
 # cli & server
-ADD go.mod go.sum main.go ./
-ADD ./client ./client
-ADD ./cmd ./cmd
-ADD ./log ./log
-ADD ./server ./server
-ADD ./user ./user
-ADD ./util ./util
-ADD ./payments ./payments
+WORKDIR /app
+COPY Makefile .
+COPY go.mod go.sum main.go ./
+COPY ./client ./client
+COPY ./cmd ./cmd
+COPY ./db ./db
+COPY ./log ./log
+COPY ./message ./message
+COPY ./model ./model
+COPY ./payments ./payments
+COPY ./server ./server
+COPY ./user ./user
+COPY ./util ./util
+COPY ./webpush ./webpush
+
+COPY --from=docs /app/server/docs ./server/docs
+COPY --from=web /app/server/site ./server/site
 RUN make VERSION=$VERSION COMMIT=$COMMIT cli-linux-server
 
-FROM alpine
 
+FROM golang:1.25-bookworm AS tzdata
+
+RUN DEBIAN_FRONTEND=noninteractive \
+  apt install --yes --no-install-recommends tzdata
+
+
+FROM gcr.io/distroless/base-debian12
 ARG VERSION=dev
 
 LABEL org.opencontainers.image.authors="philipp.heckel@gmail.com"
@@ -57,6 +64,7 @@ LABEL org.opencontainers.image.title="ntfy"
 LABEL org.opencontainers.image.description="Send push notifications to your phone or desktop using PUT/POST"
 LABEL org.opencontainers.image.version="$VERSION"
 
+COPY --from=tzdata /usr/share/zoneinfo /usr/share/zoneinfo
 COPY --from=builder /app/dist/ntfy_linux_server/ntfy /usr/bin/ntfy
 
 EXPOSE 80/tcp

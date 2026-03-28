@@ -136,7 +136,7 @@ docs-deps-update: .PHONY
 
 web: web-deps web-build
 
-web-build:
+web-build: cli-deps-static-sites
 	cd web \
 		&& $(NPM) run build \
 		&& mv build/index.html build/app.html \
